@@ -17,6 +17,8 @@ d$ans <- d$ans*100
 d$relativeAns <- d$ans/d$e
 d<-d[d$relativeAns>0.35,]
 
+rawD <- d
+
 #full factorial model
 d$realIsRight <- factor(d$realIsRight)
 d$rep <- factor(d$rep)
@@ -56,10 +58,10 @@ boxplot(d$relativeAns ~ d$type)
 #ano1<-aov(fit1)
 #TukeyHSD(ano1)
 
-# fit2 <- lm(ans ~ e + type, data=d)
-# summary(fit2)
-# ano2<-aov(fit2)
-# summary(ano2)
+ fit2 <- lm(ans ~ e + type, data=d)
+  summary(fit2)
+ ano2<-aov(fit2)
+ summary(ano2)
 
 # layout(matrix(1:4,2,2))
 # plot(fit1)
@@ -81,3 +83,33 @@ m2 <- emmeans(a1$aov, ~ e)
 summary(as.glht(pairs(m2)), test=adjusted("bonferroni"))
 m3 <- emmeans(a1$aov, ~ type+e)
 summary(as.glht(pairs(m3)), test=adjusted("bonferroni"))
+
+### agregate data for plot
+aggD<-aggregate(ans~e+type, rawD ,function(x) c(mean=mean(x),sd = sd(x)))
+aggD$sd<-aggD$ans[,"sd"]
+aggD$ans<-aggD$ans[,"mean"]
+aggD<-aggD[order(e,type),]
+
+n<-length(unique(d$id))
+x0<-aggD[aggD$type=="RR",]$e
+x1<-aggD[aggD$type=="RV",]$e-1
+x2<-aggD[aggD$type=="VV",]$e+1
+y0<-aggD[aggD$type=="RR",]$ans
+y1<-aggD[aggD$type=="RV",]$ans
+y2<-aggD[aggD$type=="VV",]$ans
+se0<-aggD[aggD$type=="RR",]$sd/sqrt(n)
+se1<-aggD[aggD$type=="RV",]$sd/sqrt(n)
+se2<-aggD[aggD$type=="VV",]$sd/sqrt(n)
+plot(y0 ~ x0,
+     ylim=c(20,100),
+     xlim=c(20,65),
+     main=" ",
+     ylab="Perceived distance (cm)",
+     xlab="Real distance (cm)",
+     col="red")
+points(y1 ~ x1, col="green")
+points(y2~x2, col="blue")
+arrows(x0,y0-se0/2,x0,y0+se0/2, length=0.05, angle=90, code=3, col="red")
+arrows(x1,y1-se1/2,x1,y1+se1/2, length=0.05, angle=90, code=3, col="green")
+arrows(x2,y2-se2/2,x2,y2+se2/2, length=0.05, angle=90, code=3, col="blue")
+lines(c(0,120),c(0,120),lty=2,col="black")
