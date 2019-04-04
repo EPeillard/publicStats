@@ -1,0 +1,135 @@
+---
+title: "Exocentric distance perception"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE, echo=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(car)
+library(ggplot2)
+library(ggstatsplot)
+
+library("afex")     # needed for ANOVA functions.
+library("emmeans")  # emmeans must now be loaded explicitly for follow-up tests.
+library("multcomp") # for advanced control for multiple testing/Type 1 errors.
+
+afex_options(emmeans_model = "multivariate") # use multivariate model for all follow-up tests.
+
+p <- read.table('participants.csv',header=TRUE, sep = ',')
+d <- read.table('trimmedData.csv',header = TRUE, sep = ',')
+
+d$ans <- d$ans*100 # answer in cm
+
+#trim data to delete errors
+d$relativeAns <- d$ans/d$e
+
+dRR <- d[which(d$type=="RR"),]
+dRR$type <- "RR"
+dRV <- d[which(d$type=="RV" & d$realIsRight==0),]
+dRV$type <- "RV"
+dVR <- d[which(d$type=="RV" & d$realIsRight==1),]
+dVR$type <- "VR"
+dVV <- d[which(d$type=="VV"),]
+dVV$type <- "VV"
+
+d <- rbind(dRR,dRV,dVR,dVV)
+
+d<-merge(d,p,by.x = "id",by.y = "id")
+
+dVdom <- d[which((d$type=="RV" & d$eye=="Droit") | (d$type=="VR" & d$eye=="Gauche")),]
+dVdom$type <- "Vdom"
+dRdom <- d[which((d$type=="RV" & d$eye=="Gauche") | (d$type=="VR" & d$eye=="Droit")),]
+dRdom$type <- "Rdom"
+
+dRR$eye <- NA
+dVV$eye <- NA
+
+d<-rbind(dRR,dVdom,dRdom,dVV)
+
+dClean<-d[d$relativeAns>0.35 & d$relativeAns<2.00,]
+dOutliers <- d[d$relativeAns<0.35 | d$relativeAns>2.00,] 
+
+d<-dClean
+
+#full factorial model
+d$realIsRight <- factor(d$realIsRight)
+d$rep <- factor(d$rep)
+d$id <- factor(d$id)
+d$type<-factor(d$type, levels=c("RR","Rdom","Vdom","VV"))
+#d$e <- factor(d$e)
+
+rawD <- d
+
+## Summarizes data.
+## Gives count, mean, standard deviation, standard error of the mean, and confidence interval (default 95%).
+##   data: a data frame.
+##   measurevar: the name of a column that contains the variable to be summariezed
+##   groupvars: a vector containing names of columns that contain grouping variables
+##   na.rm: a boolean that indicates whether to ignore NA's
+##   conf.interval: the percent range of the confidence interval (default is 95%)
+summarySE <- function(data=NULL, measurevar, groupvars=NULL, na.rm=FALSE,
+                      conf.interval=.95, .drop=TRUE) {
+    library(plyr)
+
+    # New version of length which can handle NA's: if na.rm==T, don't count them
+    length2 <- function (x, na.rm=FALSE) {
+        if (na.rm) sum(!is.na(x))
+        else       length(x)
+    }
+
+    # This does the summary. For each group's data frame, return a vector with
+    # N, mean, and sd
+    datac <- ddply(data, groupvars, .drop=.drop,
+      .fun = function(xx, col) {
+        c(N    = length2(xx[[col]], na.rm=na.rm),
+          mean = mean   (xx[[col]], na.rm=na.rm),
+          sd   = sd     (xx[[col]], na.rm=na.rm)
+        )
+      },
+      measurevar
+    )
+
+    # Rename the "mean" column    
+    datac <- rename(datac, c("mean" = measurevar))
+
+    datac$se <- datac$sd / sqrt(datac$N)  # Calculate standard error of the mean
+
+    # Confidence interval multiplier for standard error
+    # Calculate t-statistic for confidence interval: 
+    # e.g., if conf.interval is .95, use .975 (above/below), and use df=N-1
+    ciMult <- qt(conf.interval/2 + .5, datac$N-1)
+    datac$ci <- datac$se * ciMult
+    datac$name <- measurevar
+    return(datac)
+}
+```
+
+# Individual data check
+
+``` {r plotIndiv, echo=FALSE, fig.width=30, fig.height=30}
+plot <- ggplot(data=d, aes(x=e, y=relativeAns, colour=factor(type)))
+plot + stat_smooth(method=lm, fullrange=FALSE) + geom_point() + facet_wrap(~as.factor(id), nrow=8)
+```
+
+```{r analysis, echo=FALSE, message=FALSE, warning=FALSE}
+dAgg1<-aggregate(relativeAns~id+e+type,data=d,FUN=mean)
+
+summarySE(d, measurevar="relativeAns", groupvars=c("e","type"))
+
+a1 <- aov_ez("id", "relativeAns", dAgg1, between = NULL, within = c("e","type"),anova_table = list(es = "pes"))
+
+nice(a1$anova_table)
+```
+
+There is no obvious linear trend in the individual result and the effect of e appears to be not significant. Then, let's see at the pooled data. 
+
+
+# Pooled datas
+```{r pooledPlot, echo=FALSE, fig.width=30, fig.height=40}
+plot <- ggplot(data=d, aes(x=type, y=relativeAns, fill=type))
+plot + geom_boxplot() + facet_wrap(~as.factor(id), nrow=8) + geom_jitter(position = position_jitter(width = .2))
+```
+

@@ -1,0 +1,355 @@
+---
+title: "Exocentric distance perception"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE, echo=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(car)
+library(ggplot2)
+library(ggstatsplot)
+
+library("afex")     # needed for ANOVA functions.
+library("emmeans")  # emmeans must now be loaded explicitly for follow-up tests.
+library("multcomp") # for advanced control for multiple testing/Type 1 errors.
+
+afex_options(emmeans_model = "multivariate") # use multivariate model for all follow-up tests.
+
+p <- read.table('participants.csv',header=TRUE, sep = ',')
+d <- read.table('trimmedData.csv',header = TRUE, sep = ',')
+
+d$ans <- d$ans*100 # answer in cm
+
+#trim data to delete errors
+d$relativeAns <- d$ans/d$e
+
+dClean<-d[d$relativeAns>0.35 & d$relativeAns<2.00,]
+dOutliers <- d[d$relativeAns<0.35 | d$relativeAns>2.00,] 
+
+d<-dClean
+
+#full factorial model
+d$realIsRight <- factor(d$realIsRight)
+d$rep <- factor(d$rep)
+d$id <- factor(d$id)
+
+rawD <- d
+
+## Summarizes data.
+## Gives count, mean, standard deviation, standard error of the mean, and confidence interval (default 95%).
+##   data: a data frame.
+##   measurevar: the name of a column that contains the variable to be summariezed
+##   groupvars: a vector containing names of columns that contain grouping variables
+##   na.rm: a boolean that indicates whether to ignore NA's
+##   conf.interval: the percent range of the confidence interval (default is 95%)
+summarySE <- function(data=NULL, measurevar, groupvars=NULL, na.rm=FALSE,
+                      conf.interval=.95, .drop=TRUE) {
+    library(plyr)
+
+    # New version of length which can handle NA's: if na.rm==T, don't count them
+    length2 <- function (x, na.rm=FALSE) {
+        if (na.rm) sum(!is.na(x))
+        else       length(x)
+    }
+
+    # This does the summary. For each group's data frame, return a vector with
+    # N, mean, and sd
+    datac <- ddply(data, groupvars, .drop=.drop,
+      .fun = function(xx, col) {
+        c(N    = length2(xx[[col]], na.rm=na.rm),
+          mean = mean   (xx[[col]], na.rm=na.rm),
+          sd   = sd     (xx[[col]], na.rm=na.rm)
+        )
+      },
+      measurevar
+    )
+
+    # Rename the "mean" column    
+    datac <- rename(datac, c("mean" = measurevar))
+
+    datac$se <- datac$sd / sqrt(datac$N)  # Calculate standard error of the mean
+
+    # Confidence interval multiplier for standard error
+    # Calculate t-statistic for confidence interval: 
+    # e.g., if conf.interval is .95, use .975 (above/below), and use df=N-1
+    ciMult <- qt(conf.interval/2 + .5, datac$N-1)
+    datac$ci <- datac$se * ciMult
+    datac$name <- measurevar
+    return(datac)
+}
+```
+
+# Raw data check
+
+The first plot shows the distributions for each user's responses. We can observe that there are some users which tends to greatly overestimate the distance (11,25,39,55) and that just one user consistently understimated distances (27). For the remaining users the mean relative estimation ranges between 0.96 and 1.33. Also, there are some participants which exhibited an increased anwer variability (11,18,39,41). 
+
+```{r DataPreProcess, echo=FALSE}
+
+dUser <- aggregate(relativeAns~id+e+type,d,mean)
+
+levels(dUser$id) <-list("1"="9", "2"="10" ,"3"="11" ,"4"="12" ,"5"="13" ,"6"="15" ,"7"="16" ,"8"="18" ,"9"="19" ,"10"="21" ,"11"="23" ,"12"="24" ,"13"="25" ,"14"="26" ,"15"="27" ,"16"="28" ,"17"="30" ,"18"="32" ,"19"="34" ,"20"="36" ,"21"="37" ,"22"="39" ,"23"="40" ,"24"="41" ,"25"="49" ,"26"="51" ,"27"="54" ,"28"="55" ,"29"="59")
+
+ggplot(dUser, aes(x=id, y=relativeAns,fill=id)) + 
+  geom_boxplot(outlier.colour="black", outlier.shape=16,
+               outlier.size=2, notch=FALSE)+
+  theme_bw() +
+  scale_y_continuous(limits = c(0.5, 1.75)) + 
+  geom_abline(intercept = 1, slope = 0, color="black", linetype="dashed", size=1) +
+  xlab("User ID") +
+  ylab("Estimated relative distance") +
+  scale_fill_manual(values=c(
+"#999999","#FFFFFF","#E69F00","#FFFFFF","#FFFFFF",
+"#999999","#FFFFFF","#FFFFFF","#FFFFFF","#FFFFFF",
+"#FFFFFF","#FFFFFF","#E69F00","#FFFFFF","#56B4E9",
+"#FFFFFF","#FFFFFF","#FFFFFF","#FFFFFF","#FFFFFF",
+"#FFFFFF","#E69F00","#FFFFFF","#FFFFFF","#FFFFFF",
+"#FFFFFF","#999999","#E69F00","#FFFFFF"))+
+  theme(text = element_text(size=12)) + 
+  theme(legend.position = "none") + 
+  theme(axis.text.x=element_text(size=rel(0.99), angle=90, hjust = .5, vjust = 0))+
+  theme(axis.text.y=element_text(size=rel(0.99))) +
+  theme(panel.border = element_rect(fill=NA, colour = "black", size=1.5))
+
+
+ggstatsplot::ggbetweenstats(
+  data = dUser, 
+  x = id, 
+  y = relativeAns,
+  plot.type = "box",
+  title = "Estimations accross participants",
+  xlab = "User Id",
+  ylab = "Estimated relative distance",
+  messages = FALSE,
+  sample.size.label = FALSE,
+  mean.size = 2,
+  package = "cartography"
+  #palette= "blue.pal"
+) +                                               # further modification outside of ggstatsplot
+  ggplot2::coord_cartesian(ylim = c(0.5, 2.00)) + 
+  ggplot2::scale_y_continuous(breaks = seq(0.5, 2.00, by = 0.25)) +
+  ggplot2::labs(subtitle = NULL) +
+  ggplot2::geom_abline(intercept = 1, slope = 0, color="black", linetype="dashed", size=1)
+```
+
+```{r DataPreProcessBis, echo=FALSE}
+#d<-d[d$id!=11 & d$id!=39  & d$id!=55  & d$id!=41,];
+rawD <- d;
+
+d <- rawD
+
+dRR <- d[which(d$type=="RR"),]
+dRR$type <- "RR"
+dRV <- d[which(d$type=="RV" & d$realIsRight==0),]
+dRV$type <- "RV"
+dVR <- d[which(d$type=="RV" & d$realIsRight==1),]
+dVR$type <- "VR"
+dVV <- d[which(d$type=="VV"),]
+dVV$type <- "VV"
+
+d<- rbind(dRR,dRV,dVR,dVV)
+
+d$type<-factor(d$type)
+```
+
+# Full factorial analysis
+
+General linear model of Distance (8 lelves, 25cm to 65cm) and Visual Condition (4 levels, RR,RV,VR,VV) versus the relative estimated distance (%). Users 11 and 41 are removed from the analysis due to missing values (in the descriptive summary we observe one missing value for 25/VV and 55/VV.
+
+The analysis shows only a main effect on the visual condition.
+
+```{r analysis, echo=FALSE}
+d<-aggregate(relativeAns~id+e+type,data=d,FUN=mean)
+
+summarySE(d, measurevar="relativeAns", groupvars=c("e","type"))
+
+a1 <- aov_ez("id", "relativeAns", d, between = NULL, within = c("e","type"),anova_table = list(es = "pes"))
+nice(a1$anova_table)
+```
+
+## Post-Hoc tests for the type factor
+
+Post-hoc tests shows three main significant pairwise differences: RR > VV, VR > RV and VR > VV.
+
+```{r analysisTypeMainEffect, echo=FALSE}
+summarySE(d, measurevar="relativeAns", groupvars=c("type"))
+
+m1 <- emmeans(a1$aov, ~ type)
+m1.glht <- as.glht(pairs(m1))
+summary(m1.glht, test=adjusted("bonferroni"))
+```
+
+```{r splitTypePlot, echo=FALSE}
+
+# ggstatsplot::ggbetweenstats(
+#   data = aggregate(relativeAns~id+type,data=d,FUN=mean), 
+#   x = type, 
+#   y = relativeAns,
+#   title = "Estimations accross the four conditions",
+#   messages = FALSE,
+# ) +                                               # further modification outside of ggstatsplot
+#   ggplot2::coord_cartesian(ylim = c(0.5, 2.00)) + 
+#   ggplot2::scale_y_continuous(breaks = seq(0.5, 2.00, by = 0.25)) +
+#   ggplot2::labs(subtitle = NULL)
+
+
+ggstatsplot::ggbetweenstats(
+  data = aggregate(relativeAns~id+type,data=d,FUN=mean), 
+  x = type, 
+  y = relativeAns,
+  xlab = "",                       # label for the x-axis variable
+  ylab = "Relative estimated distance",
+  messages = FALSE,
+  sample.size.label = FALSE
+)  +                         
+# further modification outside of ggstatsplot
+  ggplot2::coord_cartesian(ylim = c(0.5, 2.00)) + 
+  ggplot2::scale_y_continuous(breaks = seq(0.5, 2.00, by = 0.25)) +
+  ggplot2::labs(subtitle = NULL) +
+  ggplot2::geom_abline(intercept = 1, slope = 0, color="black", linetype="dashed", size=1)
+```
+
+```{r splitRVPlot, echo=FALSE}
+
+tgc <- summarySE(d, measurevar="relativeAns", groupvars=c("type","e"))
+
+pd <- position_dodge(1) # move them .05 to the left and right
+
+ggplot(tgc, aes(x=e, y=relativeAns, colour=type)) + 
+    geom_errorbar(aes(ymin=relativeAns-se, ymax=relativeAns+se), width=.1, position=pd) +
+    geom_abline(intercept = 1, slope = 0, color="gray", linetype="dashed", size=1)+
+    geom_line(position=pd) +
+    geom_point(position=pd) + 
+    ggtitle("CI intervals for the estimated distance for all distances and each condition")+
+    xlab("Real Distance (cm)") +
+    ylab("Estimated Distance (%)") +
+     scale_colour_hue(name="Condition",    # Legend label, use darker colors
+                     #breaks=c("RR", "RV","VV"),
+                     #labels=c("RR", "RV","VV"),
+                     l=40) +                    # Use darker colors, lightness=40
+    
+    scale_y_continuous(limits = c(0.5, 1.5)) +         # Set tick every 4
+    scale_x_continuous(breaks=5:20*5) +         # Set tick every 4
+    theme_minimal() +
+    theme(legend.justification=c(1,0),
+          legend.position=c(1,0))               # Position legend in bottom right
+```
+
+# Eye dominance analysys for the RV/VR conditions
+
+In the following analysis we rearange the factors in order to make two groups related to the eye dominance. The first group (Vdom) corresponds to the trials in which on the side of the dominant eye the visual stimuli was virtual, and a second group (Rdom) which corresponds to the trials in which on the side of the dominant eye the visual stimuli was real. 
+
+```{r splitRVPlot_Eye, echo=FALSE}
+
+dRR <- rawD[which(rawD$type=="RR"),]
+dRR$type <- "RR"
+dRV <- rawD[which(rawD$type=="RV" & rawD$realIsRight==0),]
+dRV$type <- "RV"
+dVR <- rawD[which(rawD$type=="RV" & rawD$realIsRight==1),]
+dVR$type <- "VR"
+dVV <- rawD[which(rawD$type=="VV"),]
+dVV$type <- "VV"
+
+dEye <- rbind(dRR,dRV,dVR,dVV)
+
+dEye<-merge(dEye,p,by.x = "id",by.y = "id")
+
+dVdom <- dEye[which((dEye$type=="RV" & dEye$eye=="Droit") | (dEye$type=="VR" & dEye$eye=="Gauche")),]
+dVdom$type <- "Vdom"
+dRdom <- dEye[which((dEye$type=="RV" & dEye$eye=="Gauche") | (dEye$type=="VR" & dEye$eye=="Droit")),]
+dRdom$type <- "Rdom"
+
+dEye<-rbind(dVdom,dRdom)
+dEye$type<-factor(dEye$type)
+
+``` 
+
+## ANOVA analysis between Vdom and Rdom
+
+The anova shows a significant effect between Vdom and Rdom.
+
+```{r analysisEYE, echo=FALSE}
+dAnovaEye <- aggregate(relativeAns~id+e+type,dEye, mean)
+
+summarySE(dAnovaEye, measurevar="relativeAns", groupvars=c("e", "type"))
+
+a1 <- aov_ez("id", "relativeAns", dAnovaEye, between = NULL, within = c("e","type"),anova_table = list(es = "pes"))
+nice(a1$anova_table)
+```
+
+## Post-hoc tests
+
+Post-hoc tests shows that Rdom > Vdom (5% mean difference).
+
+```{r analysisEyePostHoc, echo=FALSE}
+summarySE(dEye, measurevar="relativeAns", groupvars=c("type"))
+
+m1 <- emmeans(a1$aov, ~ type)
+m1.glht <- as.glht(pairs(m1))
+summary(m1.glht, test=adjusted("bonferroni"))
+``` 
+
+
+```{r analysisplotsEYE, echo=FALSE}
+tgc <- summarySE(dEye, measurevar="relativeAns", groupvars=c("type","e"))
+
+pd <- position_dodge(0.5) # move them .05 to the left and right
+
+ggplot(tgc, aes(x=e, y=relativeAns, colour=type)) + 
+    geom_errorbar(aes(ymin=relativeAns-se, ymax=relativeAns+se), width=.1, position=pd) +
+    geom_abline(intercept = 1, slope = 0, color="gray", linetype="dashed", size=1)+
+    geom_line(position=pd) +
+    geom_point(position=pd) + 
+    ggtitle("CI intervals for the estimated distance split by Vdom and Rdom")+
+    xlab("Real Distance (cm)") +
+    ylab("Estimated Distance (%)") +
+     scale_colour_hue(name="Condition",    # Legend label, use darker colors
+                     l=40) +                    # Use darker colors, lightness=40
+    
+    scale_y_continuous(limits = c(0.5, 1.5)) +         # Set tick every 4
+    scale_x_continuous(breaks=5:20*5) +         # Set tick every 4
+    theme_minimal() +
+    theme(legend.justification=c(1,0),
+          legend.position=c(1,0))               # Position legend in bottom right
+
+ggstatsplot::ggbetweenstats(
+  data = aggregate(relativeAns~id+type,dEye, mean), 
+  x = type, 
+  y = relativeAns,
+  messages = FALSE,
+  #title = "Estimated distance according to the RV/VR visual conditions \n and the eye dominance",
+  xlab = "",   
+  ylab = "Estimated relative distance",
+  sample.size.label = FALSE
+) +                                               # further modification outside of ggstatsplot
+  ggplot2::coord_cartesian(ylim = c(0.5, 2.00)) + 
+  ggplot2::scale_y_continuous(breaks = seq(0.5, 2.00, by = 0.25)) +
+  ggplot2::labs(subtitle = NULL) +
+  geom_abline(intercept = 1, slope = 0, color="black", linetype="dashed", size=1)
+
+```
+
+```{r, echo=FALSE}
+
+ggstatsplot::ggbetweenstats(
+  data = aggregate(relativeAns~id+eye,dEye, mean), 
+  x = eye, 
+  y = relativeAns,
+  messages = FALSE,
+  title = "Estimated data split according to the user's eye dominance",
+  xlab = "Eye dominance",   
+  ylab = "Estimated distance (%)",  
+) +                         
+  ggplot2::coord_cartesian(ylim = c(0.5, 2.00)) + 
+  ggplot2::scale_y_continuous(breaks = seq(0.5, 2.00, by = 0.25)) +
+  ggplot2::labs(subtitle = NULL)
+
+```
+
+
+```{r}
+
+```
+
