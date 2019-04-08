@@ -1,11 +1,11 @@
 ---
-title: "Exocentric distance perception"
+title: "Perception des distances exocentriques - Analyse"
 output:
   html_document: default
   pdf_document: default
 ---
 
-```{r setup, include=FALSE, echo=FALSE}
+```{r start, include=FALSE, echo=FALSE, warning=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
 library(car)
@@ -54,6 +54,8 @@ dOutliers <- d[d$relativeAns<0.35 | d$relativeAns>2.00,]
 
 d<-dClean
 
+rawD <- d
+
 #full factorial model
 d$realIsRight <- factor(d$realIsRight)
 d$rep <- factor(d$rep)
@@ -61,7 +63,6 @@ d$id <- factor(d$id)
 d$type<-factor(d$type, levels=c("RR","Rdom","Vdom","VV"))
 #d$e <- factor(d$e)
 
-rawD <- d
 
 ## Summarizes data.
 ## Gives count, mean, standard deviation, standard error of the mean, and confidence interval (default 95%).
@@ -107,29 +108,166 @@ summarySE <- function(data=NULL, measurevar, groupvars=NULL, na.rm=FALSE,
 }
 ```
 
-# Individual data check
+# Analyse générale
 
-``` {r plotIndiv, echo=FALSE, fig.width=30, fig.height=30}
-plot <- ggplot(data=d, aes(x=e, y=relativeAns, colour=factor(type)))
-plot + stat_smooth(method=lm, fullrange=FALSE) + geom_point() + facet_wrap(~as.factor(id), nrow=8)
+### Boite à moustache triées par médiane croissante de l'ensemble des données des participants. 
+
+``` {r globPlot, echo=FALSE, fig.width=30, fig.height=15, warning=FALSE}
+plot <- ggplot(data=d, aes(x=reorder(id,relativeAns, FUN=median), y=relativeAns))
+plot + geom_boxplot() 
 ```
+
+27 est visiblement à part. Il sera supprimé pour la suite de l'analyse. 
+
+
+```{r echo=FALSE}
+d<-d[which(d$id!=27),]
+rawD<-rawD[which(rawD$id!=27),]
+```
+
+# Données individuelles - Détails
+
+### Régression linéaire des réponses individuelles, en fonction de la distance entre les sphères. 
+
+``` {r plotIndiv, echo=FALSE, fig.width=30, fig.height=30, warning=FALSE}
+plot <- ggplot(data=d, aes(x=e, y=relativeAns, colour=factor(type)))
+plot + 
+  stat_smooth(method=lm, fullrange=FALSE) + 
+  geom_point() + 
+  facet_wrap(~as.factor(id), nrow=8) 
+```
+
+### Anova multivariée avec e traité comme donnée continue
 
 ```{r analysis, echo=FALSE, message=FALSE, warning=FALSE}
 dAgg1<-aggregate(relativeAns~id+e+type,data=d,FUN=mean)
 
-summarySE(d, measurevar="relativeAns", groupvars=c("e","type"))
+#summarySE(d, measurevar="relativeAns", groupvars=c("e","type"))
 
 a1 <- aov_ez("id", "relativeAns", dAgg1, between = NULL, within = c("e","type"),anova_table = list(es = "pes"))
 
 nice(a1$anova_table)
 ```
 
-There is no obvious linear trend in the individual result and the effect of e appears to be not significant. Then, let's see at the pooled data. 
+Il n'y a pas de tendance linéaire visible sur les données individuelles et 'e' n'est pas un facteur significatif de l'Anova. Les données de chaque groupe sont moyennées sur l'ensemble des distances dans la suite. 
 
+11 et 41 présentent de nombreux outliers et certains groupes manque de points (suite au filtrage en première partie). Ils seront supprimés pour la suite de l'analyse. 
 
-# Pooled datas
-```{r pooledPlot, echo=FALSE, fig.width=30, fig.height=40}
-plot <- ggplot(data=d, aes(x=type, y=relativeAns, fill=type))
-plot + geom_boxplot() + facet_wrap(~as.factor(id), nrow=8) + geom_jitter(position = position_jitter(width = .2))
+```{r echo=FALSE}
+d<-d[which(d$id!=11),]
+d<-d[which(d$id!=41),]
+rawD<-rawD[which(rawD$id!=11),]
+rawD<-rawD[which(rawD$id!=41),]
 ```
 
+# Données moyennées
+
+### Boite à moustaches des données individuelles par groupe
+
+```{r pooledPlot, echo=FALSE, fig.width=30, fig.height=40, warning=FALSE}
+ggplot(data=d, aes(x=type, y=relativeAns, fill=type)) + 
+  geom_boxplot() + 
+  facet_wrap(~as.factor(id), nrow=8) + geom_jitter(position = position_jitter(width = .2))
+```
+
+### Agregat des données précédentes, triées par moyenne
+
+```{r pooledPlotLine, echo=FALSE, warning=FALSE}
+dAgg<-aggregate(relativeAns~id+type,data=d,FUN=mean)
+ggplot(data=dAgg, aes(x=reorder(id,relativeAns,FUN=mean), y=relativeAns, col=type)) + 
+  geom_point() + 
+  geom_line(aes(group=type))
+```
+
+C'est très moche, donc on va travailler en relatif. 
+
+### Résultats "relatifs" en prenant le cas RR comme référence
+
+```{r relativeResults, echo=FALSE, warning=FALSE}
+dRel <- aggregate(relativeAns~id+type, data=rawD, FUN=mean)
+
+relRR<-dRel[which(dRel$type=="RR"),]
+relRR$RR<-relRR$relativeAns
+relRdom<-dRel[which(dRel$type=="Rdom"),]
+relRdom$Rdom<-relRdom$relativeAns
+relVdom<-dRel[which(dRel$type=="Vdom"),]
+relVdom$Vdom<-relVdom$relativeAns
+relVV<-dRel[which(dRel$type=="VV"),]
+relVV$VV<-relVV$relativeAns
+
+relRR<-relRR[,c("id","RR")]
+relRdom<-relRdom[,c("id","Rdom")]
+relVdom<-relVdom[,c("id","Vdom")]
+relVV<-relVV[,c("id","VV")]
+
+dRel<-merge(relRR,relRdom,by = "id")
+dRel<-merge(dRel,relVdom,by = "id")
+dRel<-merge(dRel,relVV,by = "id")
+
+dRel$Rdom<-dRel$Rdom/dRel$RR
+dRel$Vdom<-dRel$Vdom/dRel$RR
+dRel$VV<-dRel$VV/dRel$RR
+
+dRel<-dRel[,c("id","Rdom","Vdom","VV")]
+dRel$id<-factor(dRel$id)
+
+library(ggplot2)
+library(reshape2)
+dRel <- melt(dRel, id.vars="id")
+
+ggplot(data=dRel, aes(x=reorder(id,value, FUN=min), y=value,col=variable)) + 
+  geom_point() + 
+  geom_line(aes(group=variable))
+```
+
+- Il n'y a pas de donnée "aberrante" qui pourrait expliquer l'effet observé sur les données globales. 
+- Les données individuelles ne font pas apparaître systématiquement la même tendance, mais on observe que
+  - on a Rdom > Vdom 20 fois sur 26 (77%) ;
+  - on a RR > VV 23 fois sur 26 (88%). 
+
+
+# Analyse finale (après filtrage et avec les données relatives)
+Ces résultats sont les mêmes que ceux présentés dans le papier mais rectifiés en supprimants les participants mentionnées ci-avant. (Ca ne change rien.)
+
+```{r finalAnalysis, echo=FALSE, warning=FALSE}
+d<-dRel
+
+summarySE(d, measurevar="value", groupvars=c("variable"))
+
+a1 <- aov_ez("id", "value", d, between = NULL, within = c("variable"),anova_table = list(es = "pes"))
+nice(a1$anova_table)
+```
+
+```{r analysisTypeMainEffect, echo=FALSE, warning=FALSE}
+summarySE(d, measurevar="value", groupvars=c("variable"))
+
+m1 <- emmeans(a1$aov, ~ variable)
+m1.glht <- as.glht(pairs(m1))
+summary(m1.glht, test=adjusted("bonferroni"))
+```
+
+```{r splitTypePlot, echo=FALSE, warning=FALSE}
+library(ggpubr)
+  my_comparisons <- list(c("Rdom","Vdom"),c("Rdom","VV"),c("Vdom","VV"))
+
+ggstatsplot::ggbetweenstats(
+  data = aggregate(value~id+variable,data=d,FUN=mean), 
+  x = variable, 
+  y = value,
+  xlab = "",                       # label for the x-axis variable
+  ylab = "Relative estimated distance",
+  messages = FALSE,
+  sample.size.label = FALSE
+)  +                         
+# further modification outside of ggstatsplot
+  ggplot2::coord_cartesian(ylim = c(0.80, 1.20)) + 
+  ggplot2::scale_y_continuous(breaks = seq(0.5, 2.00, by = 0.05)) +
+  ggplot2::labs(subtitle = NULL) +
+  ggplot2::geom_abline(intercept = 1, slope = 0, color="black", linetype="dashed", size=1) + 
+  stat_compare_means(comparisons = my_comparisons, method="t.test", paired = TRUE, label.y = c(1.15, 1.18, 1.15), label="p.signif") + 
+  theme(legend.position="none")
+```
+
+Remarque : les étoiles sont calulées sans la correction de Bonferroni
+
+Au final, on retrouve que Rdom est significativement différent de Vdom et de VV. Alors que Vdom et VV ne sont pas différents. 
